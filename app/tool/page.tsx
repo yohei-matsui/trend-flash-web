@@ -237,8 +237,8 @@ export default function Home() {
             そのまま<strong style={{ color: "#374151" }}>Chatworkに貼れる速報テキスト</strong>をワンクリックで生成します。
           </p>
           <div className="lg-amber px-4 py-3 text-xs text-left" style={{ color: "#78350f" }}>
-            <strong>この仕組みの目的：</strong>
-            日々の定例以外の細やかなコミュニケーションとして「業界トレンド速報」を送り、クライアントとの関係性を深めます。誰でも同じ品質で・月次で続けられるように仕組み化しています。
+            <strong>この速報の目的：</strong>
+            業界でいま伸びている動画を毎月まとめて共有し、次の企画を考える材料にしていただくためのものです。誰でも同じ品質で・続けられるように仕組み化しています。
           </div>
         </div>
 

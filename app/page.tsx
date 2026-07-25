@@ -13,7 +13,7 @@ import {
 
 export const metadata = {
   title: "業界トレンド速報メーカー | EAVAL",
-  description: "担当クライアントに毎月「業界トレンド速報」を届けるための社内ツール。目的・仕組み・使い方の概要。",
+  description: "キーワードを入れるだけで、直近で伸びているYouTube動画を自動で洗い出し「業界トレンド速報」を作成するツール。目的・仕組み・使い方の概要。",
 };
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -26,7 +26,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 const stats = [
   { icon: Clock, label: "作成にかかる時間", value: "約1分", note: "キーワードを入れて実行するだけ" },
-  { icon: CalendarRange, label: "送る頻度の目安", value: "月1回", note: "定例以外の接点として" },
+  { icon: CalendarRange, label: "お届けの頻度", value: "月1回", note: "旬なうちに共有する" },
   { icon: ListOrdered, label: "速報に載せる本数", value: "3〜10本", note: "上位から自動で選出" },
   { icon: KeyRound, label: "必要なもの", value: "APIキーのみ", note: "各自で取得・ブラウザに保存" },
 ];
@@ -65,14 +65,14 @@ export default function Overview() {
         <div className="lg-panel p-10 space-y-5 text-center">
           <span className="inline-block px-3 py-1 text-[11px] font-semibold rounded-full"
             style={{ background: "rgba(230,57,70,0.08)", color: "#e63946" }}>
-            運用代行事業部 / 社内ツール
+            YouTube運用代行 / 株式会社EAVAL
           </span>
           <h1 className="text-2xl font-bold leading-relaxed" style={{ color: "#111827" }}>
-            担当クライアントに、毎月<span style={{ color: "#e63946" }}>「業界のトレンド速報」</span>を届ける
+            毎月、<span style={{ color: "#e63946" }}>「業界のトレンド速報」</span>をお届けする
           </h1>
           <p className="text-sm leading-relaxed max-w-2xl mx-auto" style={{ color: "#6b7280" }}>
             キーワードを入れるだけで、直近で伸びているYouTube動画を自動で洗い出し、<br />
-            そのままChatworkに貼れる速報テキストを作ります。<br />
+            そのまま共有できる速報テキストを作ります。<br />
             <strong style={{ color: "#374151" }}>誰でも・同じ品質で・続けられる</strong>ように仕組み化したツールです。
           </p>
           <div className="flex items-center justify-center gap-3 pt-1">
@@ -101,27 +101,28 @@ export default function Overview() {
 
         {/* ── Why ──────────────────────────────────────────────────────── */}
         <div className="lg-panel p-8 space-y-5">
-          <SectionLabel>なぜやるのか（背景と目的）</SectionLabel>
+          <SectionLabel>なぜトレンド速報を届けるのか</SectionLabel>
           <div className="flex items-start gap-3">
             <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl"
               style={{ background: "linear-gradient(145deg,#f04050,#c01020)", boxShadow: "0 4px 12px rgba(220,38,38,0.35)" }}>
               <Heart className="h-5 w-5 text-white" />
             </div>
             <p className="text-sm leading-relaxed" style={{ color: "#4b5563" }}>
-              紹介が自然に生まれる状態をつくるには、金銭インセンティブに頼るのではなく
-              <strong style={{ color: "#111827" }}>「紹介したくなる体験・関係性」</strong>を日々のクライアントワークで積み上げることが必要です。
-              その具体策のひとつが、<strong style={{ color: "#111827" }}>定例以外の細やかなコミュニケーション</strong>。
-              業界のトレンド速報を毎月届けることは、その代表的な接点にあたります。
+              YouTubeで何が伸びるかは、業界ごとに・そして短期間で移り変わります。
+              けれど日々の業務のなかで、その変化を追い続けるのは簡単ではありません。
+              そこで<strong style={{ color: "#111827" }}>「いま同じ業界で伸びている動画」を毎月まとめてお届けし</strong>、
+              次の企画を考える材料にしていただくのがこの速報の役割です。
+              定例の打ち合わせを待たずに、旬なうちに共有することを大切にしています。
             </p>
           </div>
 
-          {/* 目的の連鎖 */}
+          {/* 価値の連鎖 */}
           <div className="grid gap-2 sm:grid-cols-4">
             {[
-              { t: "新規案件を増やす", s: "上位の目的" },
-              { t: "紹介したくなる関係性", s: "そのための手段" },
-              { t: "定例以外の細かな接点", s: "関係性のつくり方" },
-              { t: "業界トレンド速報", s: "＝このツール", accent: true },
+              { t: "業界の動きは速い", s: "課題" },
+              { t: "伸びている動画を毎月抽出", s: "このツールの役割", accent: true },
+              { t: "旬なうちに共有", s: "お届けの仕方" },
+              { t: "次の企画づくりに活かす", s: "得られること" },
             ].map((x, i) => (
               <div key={x.t} className="relative">
                 <div className="rounded-2xl px-4 py-3.5 h-full"
@@ -139,9 +140,6 @@ export default function Overview() {
               </div>
             ))}
           </div>
-          <p className="text-[11px]" style={{ color: "rgba(0,0,0,0.3)" }}>
-            ※ 2026/07/22 の定例ミーティングで整理した方針にもとづいています
-          </p>
         </div>
 
         {/* ── Flow ─────────────────────────────────────────────────────── */}
