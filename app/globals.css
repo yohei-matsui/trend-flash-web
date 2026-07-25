@@ -1,0 +1,220 @@
+@import "tailwindcss";
+
+/* ─── Liquid Glass Design System ─────────────────────────────────────── */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+/* Base background: off-white → warm-gray mesh gradient */
+.lg-base {
+  min-height: 100vh;
+  background:
+    radial-gradient(ellipse at 20% 20%, rgba(255, 250, 245, 0.9) 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 80%, rgba(245, 240, 235, 0.7) 0%, transparent 60%),
+    linear-gradient(160deg, #f9f7f4 0%, #f2ede8 50%, #ede8e2 100%);
+}
+
+/* Frosted glass panel */
+.lg-panel {
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  border-radius: 20px;
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.9),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.03),
+    0 8px 32px rgba(0, 0, 0, 0.06),
+    0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+/* Header glass */
+.lg-header {
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(20px) saturate(1.3);
+  -webkit-backdrop-filter: blur(20px) saturate(1.3);
+  box-shadow:
+    inset 0 -1px 0 rgba(0, 0, 0, 0.05),
+    0 2px 12px rgba(0, 0, 0, 0.04);
+}
+
+/* Filter chip — unselected: almost invisible */
+.lg-chip {
+  background: rgba(0, 0, 0, 0.03);
+  color: #9ca3af;
+  border-radius: 9999px;
+  transition: all 0.18s ease;
+}
+.lg-chip:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #6b7280;
+}
+
+/* Filter chip — selected: glowing red capsule */
+.lg-chip-on {
+  background: linear-gradient(145deg, #f04050 0%, #d01428 100%);
+  color: white;
+  border-radius: 9999px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 4px 14px rgba(220, 38, 38, 0.42),
+    0 1px 3px rgba(220, 38, 38, 0.3);
+  transition: all 0.18s ease;
+}
+
+/* Segment control container (recessed) */
+.lg-seg-wrap {
+  background: rgba(0, 0, 0, 0.055);
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.10), inset 0 1px 2px rgba(0, 0, 0, 0.07);
+  border-radius: 12px;
+  padding: 3px;
+}
+
+/* Segment control — active pill (floating) */
+.lg-seg-active {
+  background: white;
+  border-radius: 9px;
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.13),
+    0 1px 2px rgba(0, 0, 0, 0.09),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  color: #111827;
+}
+
+/* Segment control — inactive */
+.lg-seg-idle {
+  border-radius: 9px;
+  color: #9ca3af;
+  transition: color 0.15s;
+}
+.lg-seg-idle:hover {
+  color: #6b7280;
+}
+
+/* Search button: red capsule with glow */
+.lg-search-btn {
+  background: linear-gradient(145deg, #f04050 0%, #c01020 100%);
+  border-radius: 9999px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 6px 22px rgba(210, 20, 36, 0.44),
+    0 2px 6px rgba(210, 20, 36, 0.28);
+  transition: all 0.18s ease;
+}
+.lg-search-btn:hover:not(:disabled) {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 8px 28px rgba(210, 20, 36, 0.54),
+    0 3px 8px rgba(210, 20, 36, 0.35);
+  transform: translateY(-1px);
+}
+.lg-search-btn:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Amber info box: yellow frosted glass */
+.lg-amber {
+  background: rgba(253, 224, 71, 0.10);
+  box-shadow:
+    inset 0 0 0 1px rgba(253, 200, 30, 0.30),
+    inset 0 1px 1px rgba(255, 240, 120, 0.55);
+  border-radius: 12px;
+}
+
+/* Blue info box: blue frosted glass */
+.lg-blue {
+  background: rgba(96, 165, 250, 0.10);
+  box-shadow:
+    inset 0 0 0 1px rgba(96, 165, 250, 0.25),
+    inset 0 1px 1px rgba(147, 197, 253, 0.4);
+  border-radius: 10px;
+}
+
+/* Red info box */
+.lg-red-info {
+  background: rgba(239, 68, 68, 0.08);
+  box-shadow:
+    inset 0 0 0 1px rgba(239, 68, 68, 0.22),
+    inset 0 1px 1px rgba(252, 165, 165, 0.3);
+  border-radius: 12px;
+}
+
+/* Text input glass */
+.lg-input {
+  background: rgba(255, 255, 255, 0.72);
+  border: none;
+  box-shadow:
+    inset 0 2px 5px rgba(0, 0, 0, 0.07),
+    inset 0 1px 2px rgba(0, 0, 0, 0.05),
+    0 1px 0 rgba(255, 255, 255, 0.9);
+  border-radius: 12px;
+  outline: none;
+  transition: box-shadow 0.18s;
+}
+.lg-input:focus {
+  box-shadow:
+    inset 0 2px 5px rgba(0, 0, 0, 0.07),
+    inset 0 1px 2px rgba(0, 0, 0, 0.05),
+    0 0 0 2.5px rgba(220, 38, 38, 0.28),
+    0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+/* Step icon circle */
+.lg-step-icon {
+  background: rgba(255, 255, 255, 0.8);
+  box-shadow:
+    inset 0 1px 1px rgba(255,255,255,0.9),
+    0 3px 10px rgba(0,0,0,0.09);
+  border-radius: 14px;
+}
+
+/* Step card */
+.lg-step-card {
+  background: rgba(255, 255, 255, 0.35);
+  box-shadow:
+    inset 0 1px 1px rgba(255,255,255,0.7),
+    0 2px 6px rgba(0,0,0,0.04);
+  border-radius: 14px;
+}
+
+/* Table row hover */
+.lg-row:hover {
+  background: rgba(255, 255, 255, 0.7);
+}
+
+/* Spread rate badge */
+.lg-badge-red    { background: rgba(220, 38, 38, 0.10);  color: #b91c1c; border-radius: 9999px; }
+.lg-badge-orange { background: rgba(234, 88, 12, 0.10);  color: #c2410c; border-radius: 9999px; }
+.lg-badge-yellow { background: rgba(202, 138, 4, 0.12);  color: #92400e; border-radius: 9999px; }
+.lg-badge-gray   { background: rgba(107, 114, 128, 0.08); color: #6b7280; border-radius: 9999px; }
+
+/* CSV button */
+.lg-csv-btn {
+  background: rgba(255,255,255,0.7);
+  box-shadow: inset 0 1px 1px rgba(255,255,255,0.9), 0 2px 6px rgba(0,0,0,0.06);
+  border-radius: 10px;
+  transition: all 0.15s;
+}
+.lg-csv-btn:hover {
+  background: rgba(255,255,255,0.9);
+}
+
+/* Load-more button */
+.lg-more-btn {
+  background: rgba(255,255,255,0.7);
+  box-shadow: inset 0 1px 1px rgba(255,255,255,0.9), 0 3px 10px rgba(0,0,0,0.07);
+  border-radius: 9999px;
+  transition: all 0.18s;
+}
+.lg-more-btn:hover {
+  background: rgba(255,255,255,0.92);
+  transform: translateY(-1px);
+  box-shadow: inset 0 1px 1px rgba(255,255,255,0.9), 0 5px 14px rgba(0,0,0,0.1);
+}
+
+/* Table divider */
+.lg-divider {
+  border-top: 1px solid rgba(0,0,0,0.04);
+}
