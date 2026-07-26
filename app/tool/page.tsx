@@ -24,21 +24,12 @@ const regionOptions: { label: string; value: Region }[] = [
   { label: "🇺🇸 アメリカ", value: "usa" },
 ];
 
+// YouTube検索APIの videoDuration に合わせた区分（境界は4分・20分）
 const durationOptions: { label: string; value: DurationValue }[] = [
-  { label: "3分未満", value: "short" },
-  { label: "3〜20分", value: "medium" },
+  { label: "4分未満", value: "short" },
+  { label: "4〜20分", value: "medium" },
   { label: "20分以上", value: "long" },
 ];
-
-/* 動画の尺が選択された区分に当てはまるか */
-function matchesDuration(sec: number, selected: DurationValue[]): boolean {
-  if (selected.length === 0) return true;
-  return selected.some((d) => {
-    if (d === "short") return sec < 180;
-    if (d === "medium") return sec >= 180 && sec < 1200;
-    return sec >= 1200;
-  });
-}
 
 function fmt(n: number): string {
   if (n >= 100000000) return `${(n / 100000000).toFixed(1)}億`;
@@ -206,6 +197,7 @@ export default function Home() {
           daysWithin: days,
           maxPerKeyword: 25,
           region,
+          durations,
           order: "viewCount",
         }),
       });
@@ -217,7 +209,7 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, [apiKey, keywords, kwInput, days, region, persistKeywords]);
+  }, [apiKey, keywords, kwInput, days, region, durations, persistKeywords]);
 
   // クライアント側フィルタ
   const filtered = useMemo(() => {
@@ -226,10 +218,9 @@ export default function Home() {
       if (v.viewCount < minViews) return false;
       if (minSpread > 0 && v.spreadRate < minSpread) return false;
       if (excludeShorts && v.durationSeconds > 0 && v.durationSeconds <= 60) return false;
-      if (!matchesDuration(v.durationSeconds, durations)) return false;
       return true;
     });
-  }, [result, minViews, minSpread, excludeShorts, durations]);
+  }, [result, minViews, minSpread, excludeShorts]);
 
   const report = useMemo(
     () => (result ? buildReport(result.genre, filtered, days, topN) : ""),
@@ -423,6 +414,11 @@ export default function Home() {
               動画時間
               <span className="ml-2 font-normal" style={{ color: "rgba(0,0,0,0.32)" }}>複数選択可・未選択ならすべて</span>
             </label>
+            {durations.length > 1 && (
+              <p className="text-[11px]" style={{ color: "rgba(0,0,0,0.4)" }}>
+                区分ごとに検索するため、選ぶ数だけAPIの消費量が増えます
+              </p>
+            )}
             <div className="flex flex-wrap gap-2">
               {durationOptions.map((o) => {
                 const selected = durations.includes(o.value);

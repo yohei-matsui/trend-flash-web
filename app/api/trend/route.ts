@@ -145,6 +145,14 @@ export async function POST(request: NextRequest) {
   const maxPerKeyword: number = Math.min(50, Number(body.maxPerKeyword) > 0 ? Number(body.maxPerKeyword) : 25);
   const regionCode: string = body.region === "korea" ? "KR" : body.region === "usa" ? "US" : "JP";
   const order: string = body.order === "date" ? "date" : "viewCount";
+  // 尺の絞り込みは検索の時点で行う。取得後に絞ると、再生数上位を短尺が独占して
+  // 中尺・長尺が1件も取得されず「0件」になってしまうため。
+  // YouTube側の区分: short=4分未満 / medium=4〜20分 / long=20分超
+  const durationsIn: string[] = Array.isArray(body.durations)
+    ? body.durations.filter((d: unknown) => d === "short" || d === "medium" || d === "long")
+    : [];
+  // 未選択（＝すべて）なら any 1回だけ。選択があればその区分ごとに検索する
+  const durationQueries: string[] = durationsIn.length > 0 ? durationsIn : ["any"];
 
   if (keywords.length === 0) {
     return NextResponse.json({ error: "キーワードを1つ以上指定してください" }, { status: 400 });
@@ -156,24 +164,27 @@ export async function POST(request: NextRequest) {
   const idToKeyword = new Map<string, string>();
   try {
     for (const kw of keywords) {
-      const url = new URL("https://www.googleapis.com/youtube/v3/search");
-      url.searchParams.set("part", "id");
-      url.searchParams.set("q", kw);
-      url.searchParams.set("type", "video");
-      url.searchParams.set("regionCode", regionCode);
-      url.searchParams.set("relevanceLanguage", regionCode === "JP" ? "ja" : regionCode === "KR" ? "ko" : "en");
-      url.searchParams.set("order", order);
-      url.searchParams.set("maxResults", String(maxPerKeyword));
-      url.searchParams.set("publishedAfter", publishedAfterIso);
-      url.searchParams.set("key", apiKey);
-      const res = await fetch(url.toString());
-      const data = await res.json();
-      if (data.error) {
-        return NextResponse.json({ error: data.error.message }, { status: 500 });
-      }
-      for (const item of data.items ?? []) {
-        const vid = item.id?.videoId;
-        if (vid && !idToKeyword.has(vid)) idToKeyword.set(vid, kw);
+      for (const vd of durationQueries) {
+        const url = new URL("https://www.googleapis.com/youtube/v3/search");
+        url.searchParams.set("part", "id");
+        url.searchParams.set("q", kw);
+        url.searchParams.set("type", "video");
+        url.searchParams.set("regionCode", regionCode);
+        url.searchParams.set("relevanceLanguage", regionCode === "JP" ? "ja" : regionCode === "KR" ? "ko" : "en");
+        url.searchParams.set("order", order);
+        url.searchParams.set("maxResults", String(maxPerKeyword));
+        url.searchParams.set("publishedAfter", publishedAfterIso);
+        url.searchParams.set("videoDuration", vd);
+        url.searchParams.set("key", apiKey);
+        const res = await fetch(url.toString());
+        const data = await res.json();
+        if (data.error) {
+          return NextResponse.json({ error: data.error.message }, { status: 500 });
+        }
+        for (const item of data.items ?? []) {
+          const vid = item.id?.videoId;
+          if (vid && !idToKeyword.has(vid)) idToKeyword.set(vid, kw);
+        }
       }
     }
   } catch {
