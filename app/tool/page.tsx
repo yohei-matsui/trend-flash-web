@@ -24,6 +24,23 @@ const regionOptions: { label: string; value: Region }[] = [
   { label: "🇺🇸 アメリカ", value: "usa" },
 ];
 
+/* 地域を切り替えたときにキーワードを訳す。
+   YouTubeの regionCode / relevanceLanguage は効果が弱く、実際に結果を決めるのは
+   キーワードの言語なので、地域に合わせて言語も揃える必要がある。 */
+async function translateKeyword(text: string, targetLang: string): Promise<string> {
+  if (!text.trim()) return text;
+  try {
+    const res = await fetch(
+      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=ja|${targetLang}`
+    );
+    const data = await res.json();
+    const out = data?.responseData?.translatedText;
+    return typeof out === "string" && out.trim() ? out.trim() : text;
+  } catch {
+    return text; // 失敗したら元のキーワードのまま検索する
+  }
+}
+
 // YouTube検索APIの videoDuration に合わせた区分（境界は4分・20分）
 const durationOptions: { label: string; value: DurationValue }[] = [
   { label: "4分未満", value: "short" },
@@ -110,6 +127,9 @@ export default function Home() {
   // キーワード入力
   const [keywords, setKeywords] = useState<string[]>([]);
   const [kwInput, setKwInput] = useState("");
+  // 翻訳前（日本語）のキーワード。日本に戻したときに復元するために保持する
+  const [baseKeywords, setBaseKeywords] = useState<string[] | null>(null);
+  const [translating, setTranslating] = useState(false);
 
   // フィルタ
   const [region, setRegion] = useState<Region>("japan");
@@ -155,12 +175,41 @@ export default function Home() {
     const next = [...keywords];
     for (const p of parts) if (!next.includes(p)) next.push(p);
     persistKeywords(next);
+    setBaseKeywords(null); // 手で編集したら翻訳前の内容は破棄する
     setKwInput("");
   }, [keywords, persistKeywords]);
 
   const removeKeyword = useCallback((kw: string) => {
     persistKeywords(keywords.filter((k) => k !== kw));
+    setBaseKeywords(null); // 手で編集したら翻訳前の内容は破棄する
   }, [keywords, persistKeywords]);
+
+  /* 地域切り替え。キーワードをその国の言語に自動翻訳する */
+  const handleRegionChange = useCallback(async (next: Region) => {
+    if (next === region || translating) return;
+    if (keywords.length === 0) { setRegion(next); return; }
+
+    if (next === "japan") {
+      // 日本に戻すときは翻訳前のキーワードを復元する
+      if (baseKeywords) { persistKeywords(baseKeywords); setBaseKeywords(null); }
+      setRegion(next);
+      return;
+    }
+
+    // 翻訳は必ず日本語の原文から行う（韓国語→英語の重ね翻訳を避けるため）
+    const source = baseKeywords ?? keywords;
+    const targetLang = next === "korea" ? "ko" : "en";
+    setTranslating(true);
+    try {
+      const translated = await Promise.all(source.map((k) => translateKeyword(k, targetLang)));
+      const uniq = [...new Set(translated.map((t) => t.trim()).filter(Boolean))];
+      if (!baseKeywords) setBaseKeywords(source);
+      persistKeywords(uniq.length > 0 ? uniq : source);
+    } finally {
+      setTranslating(false);
+      setRegion(next);
+    }
+  }, [region, translating, keywords, baseKeywords, persistKeywords]);
 
   const handleKwKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     // IME変換中のEnterは確定に使われるので無視する
@@ -228,7 +277,7 @@ export default function Home() {
   );
 
   const hasAnyKeyword = keywords.length > 0 || kwInput.trim().length > 0;
-  const canGenerate = Boolean(apiKey.trim()) && hasAnyKeyword && !loading;
+  const canGenerate = Boolean(apiKey.trim()) && hasAnyKeyword && !loading && !translating;
 
   return (
     <div className="lg-base">
@@ -324,7 +373,7 @@ export default function Home() {
               ))}
               <button
                 type="button"
-                onClick={() => persistKeywords([])}
+                onClick={() => { persistKeywords([]); setBaseKeywords(null); }}
                 className="text-[11px] underline underline-offset-2 px-1"
                 style={{ color: "rgba(0,0,0,0.35)" }}
               >
@@ -348,22 +397,29 @@ export default function Home() {
 
           {/* 公開地域 */}
           <div className="space-y-2">
-            <label className="text-xs font-medium" style={{ color: "#374151" }}>公開地域</label>
+            <label className="text-xs font-medium flex items-center gap-2" style={{ color: "#374151" }}>
+              公開地域
+              {translating && (
+                <span className="font-normal animate-pulse" style={{ color: "#e63946" }}>キーワードを翻訳中…</span>
+              )}
+            </label>
             <div className="lg-seg-wrap flex w-fit text-sm font-medium">
               {regionOptions.map((r) => (
                 <button
                   key={r.value}
                   type="button"
-                  onClick={() => setRegion(r.value)}
-                  className={`px-4 py-2 transition-all ${region === r.value ? "lg-seg-active" : "lg-seg-idle"}`}
+                  onClick={() => handleRegionChange(r.value)}
+                  disabled={translating}
+                  className={`px-4 py-2 transition-all disabled:opacity-50 ${region === r.value ? "lg-seg-active" : "lg-seg-idle"}`}
                 >
                   {r.label}
                 </button>
               ))}
             </div>
-            {region !== "japan" && (
+            {region !== "japan" && !translating && (
               <p className="text-[11px]" style={{ color: "rgba(0,0,0,0.4)" }}>
-                {region === "korea" ? "韓国語" : "英語"}のキーワードを入力すると精度が上がります
+                キーワードを{region === "korea" ? "韓国語" : "英語"}に自動翻訳しました。
+                訳が不自然なときは、上のキーワード欄を直接書き換えてください（日本に戻すと元に戻ります）
               </p>
             )}
           </div>
