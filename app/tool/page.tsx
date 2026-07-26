@@ -15,6 +15,31 @@ import { TrendVideoItem, TrendResponse } from "@/app/api/trend/route";
 const LS_KEY = "tf-api-key";
 const LS_KEYWORDS = "tf-keywords";
 
+type Region = "japan" | "korea" | "usa";
+type DurationValue = "short" | "medium" | "long";
+
+const regionOptions: { label: string; value: Region }[] = [
+  { label: "🇯🇵 日本", value: "japan" },
+  { label: "🇰🇷 韓国", value: "korea" },
+  { label: "🇺🇸 アメリカ", value: "usa" },
+];
+
+const durationOptions: { label: string; value: DurationValue }[] = [
+  { label: "3分未満", value: "short" },
+  { label: "3〜20分", value: "medium" },
+  { label: "20分以上", value: "long" },
+];
+
+/* 動画の尺が選択された区分に当てはまるか */
+function matchesDuration(sec: number, selected: DurationValue[]): boolean {
+  if (selected.length === 0) return true;
+  return selected.some((d) => {
+    if (d === "short") return sec < 180;
+    if (d === "medium") return sec >= 180 && sec < 1200;
+    return sec >= 1200;
+  });
+}
+
 function fmt(n: number): string {
   if (n >= 100000000) return `${(n / 100000000).toFixed(1)}億`;
   if (n >= 10000) return `${(n / 10000).toFixed(1)}万`;
@@ -96,9 +121,11 @@ export default function Home() {
   const [kwInput, setKwInput] = useState("");
 
   // フィルタ
+  const [region, setRegion] = useState<Region>("japan");
   const [days, setDays] = useState(30);
   const [minViews, setMinViews] = useState(10000);
   const [minSpread, setMinSpread] = useState(1.0);
+  const [durations, setDurations] = useState<DurationValue[]>([]);
   const [excludeShorts, setExcludeShorts] = useState(true);
   const [topN, setTopN] = useState(5);
 
@@ -178,7 +205,7 @@ export default function Home() {
           keywords: effective,
           daysWithin: days,
           maxPerKeyword: 25,
-          region: "japan",
+          region,
           order: "viewCount",
         }),
       });
@@ -190,7 +217,7 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, [apiKey, keywords, kwInput, days, persistKeywords]);
+  }, [apiKey, keywords, kwInput, days, region, persistKeywords]);
 
   // クライアント側フィルタ
   const filtered = useMemo(() => {
@@ -199,9 +226,10 @@ export default function Home() {
       if (v.viewCount < minViews) return false;
       if (minSpread > 0 && v.spreadRate < minSpread) return false;
       if (excludeShorts && v.durationSeconds > 0 && v.durationSeconds <= 60) return false;
+      if (!matchesDuration(v.durationSeconds, durations)) return false;
       return true;
     });
-  }, [result, minViews, minSpread, excludeShorts]);
+  }, [result, minViews, minSpread, excludeShorts, durations]);
 
   const report = useMemo(
     () => (result ? buildReport(result.genre, filtered, days, topN) : ""),
@@ -326,6 +354,29 @@ export default function Home() {
         {/* ── Filters ──────────────────────────────────────────────────── */}
         <div className="lg-panel p-6 space-y-5">
           <SectionLabel>条件</SectionLabel>
+
+          {/* 公開地域 */}
+          <div className="space-y-2">
+            <label className="text-xs font-medium" style={{ color: "#374151" }}>公開地域</label>
+            <div className="lg-seg-wrap flex w-fit text-sm font-medium">
+              {regionOptions.map((r) => (
+                <button
+                  key={r.value}
+                  type="button"
+                  onClick={() => setRegion(r.value)}
+                  className={`px-4 py-2 transition-all ${region === r.value ? "lg-seg-active" : "lg-seg-idle"}`}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+            {region !== "japan" && (
+              <p className="text-[11px]" style={{ color: "rgba(0,0,0,0.4)" }}>
+                {region === "korea" ? "韓国語" : "英語"}のキーワードを入力すると精度が上がります
+              </p>
+            )}
+          </div>
+
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <div className="space-y-1.5">
               <label className="text-xs font-medium" style={{ color: "#374151" }}>対象期間</label>
@@ -366,6 +417,33 @@ export default function Home() {
               </select>
             </div>
           </div>
+          {/* 動画時間（複数選択可） */}
+          <div className="space-y-2">
+            <label className="text-xs font-medium" style={{ color: "#374151" }}>
+              動画時間
+              <span className="ml-2 font-normal" style={{ color: "rgba(0,0,0,0.32)" }}>複数選択可・未選択ならすべて</span>
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {durationOptions.map((o) => {
+                const selected = durations.includes(o.value);
+                return (
+                  <button
+                    key={o.value}
+                    type="button"
+                    onClick={() =>
+                      setDurations((prev) =>
+                        prev.includes(o.value) ? prev.filter((d) => d !== o.value) : [...prev, o.value]
+                      )
+                    }
+                    className={`px-3 py-1 text-xs font-medium transition-all ${selected ? "lg-chip-on" : "lg-chip"}`}
+                  >
+                    {o.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <label className="flex items-center gap-2 text-sm" style={{ color: "#374151" }}>
             <input type="checkbox" checked={excludeShorts} onChange={(e) => setExcludeShorts(e.target.checked)} style={{ accentColor: "#e63946" }} />
             ショート動画（60秒以下）を除外する
