@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useState, useCallback, useMemo, useEffect } from "react";
-import { Eye, EyeOff, Copy, Check, X, Zap, Download, Plus, ArrowLeft } from "lucide-react";
+import { Eye, EyeOff, Copy, Check, X, Zap, Download, Plus, ArrowLeft, ChevronUp, ChevronDown } from "lucide-react";
 import { TrendVideoItem, TrendResponse } from "@/app/api/trend/route";
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -17,6 +17,37 @@ const LS_KEYWORDS = "tf-keywords";
 
 type Region = "japan" | "korea" | "usa";
 type DurationValue = "short" | "medium" | "long";
+type SortKey = "channelName" | "publishedAt" | "viewCount" | "spreadRate";
+type SortDir = "asc" | "desc";
+
+/* 並び替え用のテーブル見出し */
+function SortHeader({
+  label, sortKey, currentKey, currentDir, onSort, align = "left",
+}: {
+  label: string;
+  sortKey: SortKey;
+  currentKey: SortKey;
+  currentDir: SortDir;
+  onSort: (k: SortKey) => void;
+  align?: "left" | "right";
+}) {
+  const active = currentKey === sortKey;
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(sortKey)}
+      className={`flex items-center gap-1 font-medium transition-colors ${align === "right" ? "ml-auto" : ""}`}
+      style={{ color: active ? "#e63946" : undefined }}
+      title={`${label}で並び替え`}
+    >
+      {label}
+      <span className="flex flex-col">
+        <ChevronUp className="h-3 w-3 -mb-1" style={{ color: active && currentDir === "asc" ? "#e63946" : "rgba(0,0,0,0.2)" }} />
+        <ChevronDown className="h-3 w-3" style={{ color: active && currentDir === "desc" ? "#e63946" : "rgba(0,0,0,0.2)" }} />
+      </span>
+    </button>
+  );
+}
 
 const regionOptions: { label: string; value: Region }[] = [
   { label: "🇯🇵 日本", value: "japan" },
@@ -144,6 +175,12 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<TrendResponse | null>(null);
   const [copied, setCopied] = useState(false);
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "spreadRate", dir: "desc" });
+
+  /* 同じ列を押すと降順→昇順で切り替わる */
+  const handleSort = useCallback((key: SortKey) => {
+    setSort((prev) => ({ key, dir: prev.key === key && prev.dir === "desc" ? "asc" : "desc" }));
+  }, []);
 
   // 初期ロード（localStorage）
   useEffect(() => {
@@ -271,9 +308,23 @@ export default function Home() {
     });
   }, [result, minViews, minSpread, excludeShorts]);
 
+  // 並び替え。速報テキストも画面の並び順に合わせる（上位N本＝いま見えている順の上からN本）
+  const sorted = useMemo(() => {
+    const arr = [...filtered];
+    arr.sort((a, b) => {
+      let diff: number;
+      if (sort.key === "channelName") diff = a.channelName.localeCompare(b.channelName, "ja");
+      else if (sort.key === "publishedAt") diff = new Date(a.publishedAt).getTime() - new Date(b.publishedAt).getTime();
+      else if (sort.key === "viewCount") diff = a.viewCount - b.viewCount;
+      else diff = a.spreadRate - b.spreadRate;
+      return sort.dir === "desc" ? -diff : diff;
+    });
+    return arr;
+  }, [filtered, sort]);
+
   const report = useMemo(
-    () => (result ? buildReport(result.genre, filtered, days, topN) : ""),
-    [result, filtered, days, topN]
+    () => (result ? buildReport(result.genre, sorted, days, topN) : ""),
+    [result, sorted, days, topN]
   );
 
   const hasAnyKeyword = keywords.length > 0 || kwInput.trim().length > 0;
@@ -556,7 +607,7 @@ export default function Home() {
                   <span className="text-sm" style={{ color: "rgba(0,0,0,0.4)" }}>
                     {result.genre || genreLabel}：{filtered.length}件（取得 {result.totalFetched}件中）
                   </span>
-                  <button type="button" onClick={() => exportCsv(result.genre || genreLabel, filtered)}
+                  <button type="button" onClick={() => exportCsv(result.genre || genreLabel, sorted)}
                     className="lg-csv-btn flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium" style={{ color: "#4b5563" }}>
                     <Download className="h-3.5 w-3.5" /> CSV
                   </button>
@@ -567,14 +618,22 @@ export default function Home() {
                       <tr className="text-xs" style={{ borderBottom: "1px solid rgba(0,0,0,0.05)", background: "rgba(0,0,0,0.015)", color: "#9ca3af" }}>
                         <th className="px-4 py-3 text-left w-10">#</th>
                         <th className="px-4 py-3 text-left">動画</th>
-                        <th className="px-4 py-3 text-left whitespace-nowrap">チャンネル</th>
-                        <th className="px-4 py-3 text-right whitespace-nowrap">公開日</th>
-                        <th className="px-4 py-3 text-right whitespace-nowrap">再生回数</th>
-                        <th className="px-4 py-3 text-right whitespace-nowrap">拡散率</th>
+                        <th className="px-4 py-3 text-left whitespace-nowrap">
+                          <SortHeader label="チャンネル" sortKey="channelName" currentKey={sort.key} currentDir={sort.dir} onSort={handleSort} />
+                        </th>
+                        <th className="px-4 py-3 text-right whitespace-nowrap">
+                          <SortHeader label="公開日" sortKey="publishedAt" currentKey={sort.key} currentDir={sort.dir} onSort={handleSort} align="right" />
+                        </th>
+                        <th className="px-4 py-3 text-right whitespace-nowrap">
+                          <SortHeader label="再生回数" sortKey="viewCount" currentKey={sort.key} currentDir={sort.dir} onSort={handleSort} align="right" />
+                        </th>
+                        <th className="px-4 py-3 text-right whitespace-nowrap">
+                          <SortHeader label="拡散率" sortKey="spreadRate" currentKey={sort.key} currentDir={sort.dir} onSort={handleSort} align="right" />
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
-                      {filtered.map((v, i) => (
+                      {sorted.map((v, i) => (
                         <tr key={v.id} className="lg-row" style={{ borderTop: "1px solid rgba(0,0,0,0.035)" }}>
                           <td className="px-4 py-3 text-xs" style={{ color: "rgba(0,0,0,0.25)" }}>{i + 1}</td>
                           <td className="px-4 py-3">
