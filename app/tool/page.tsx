@@ -14,6 +14,7 @@ import { TrendVideoItem, TrendResponse } from "@/app/api/trend/route";
 
 const LS_KEY = "tf-api-key";
 const LS_KEYWORDS = "tf-keywords";
+const LS_EXCLUDE = "tf-exclude";
 
 type Region = "japan" | "korea" | "usa";
 type DurationValue = "short" | "medium" | "long";
@@ -105,23 +106,39 @@ function genreLabelOf(keywords: string[]): string {
   return `${keywords.slice(0, 2).join("・")} 他${keywords.length - 2}件`;
 }
 
-/* 速報テキスト（Chatwork用）を生成 */
-function buildReport(genre: string, videos: TrendVideoItem[], days: number, topN: number): string {
+/* YouTubeの概要欄は URL・ハッシュタグ・定型文が多いので、読める形に整える */
+function cleanDescription(raw: string, limit = 120): string {
+  if (!raw) return "";
+  const text = raw
+    .replace(/https?:\/\/\S+/g, "")        // URL
+    .replace(/[#＃][^\s#＃]+/g, "")         // ハッシュタグ
+    .replace(/[\r\n]+/g, " ")              // 改行は詰める
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  if (!text) return "";
+  return text.length > limit ? `${text.slice(0, limit)}…` : text;
+}
+
+/* 速報テキスト（Chatwork用）を生成。渡された動画をそのまま全件載せる */
+function buildReport(genre: string, videos: TrendVideoItem[], days: number): string {
   const now = new Date();
   const month = `${now.getFullYear()}年${String(now.getMonth() + 1).padStart(2, "0")}月`;
   const lines: string[] = [];
   lines.push(`[info][title]📊 業界トレンド速報（${genre ? `${genre} / ` : ""}${month}）[/title]`);
-  lines.push(`直近${days}日で新規・伸びている動画を ${Math.min(topN, videos.length)} 本ピックアップしました。`);
+  lines.push(`直近${days}日で新規・伸びている動画を ${videos.length} 本ピックアップしました。`);
   lines.push("");
-  videos.slice(0, topN).forEach((v, i) => {
-    const meta = v.spreadRate >= 1
-      ? `${v.viewCount.toLocaleString()}回 / 拡散率${v.spreadRate.toFixed(1)}倍`
-      : `${v.viewCount.toLocaleString()}回`;
-    lines.push(`${i + 1}. ${v.title}`);
-    lines.push(`　${v.channelName}（${meta}）`);
+  videos.forEach((v, i) => {
+    // ①タイトル／チャンネル名 ②数字 ③リンク ④概要 の順に並べる
+    lines.push(`${i + 1}. ${v.title} ／ ${v.channelName}`);
+    lines.push(
+      `　${v.viewCount.toLocaleString()}回` +
+      (v.spreadRate >= 1 ? `　拡散率 ${v.spreadRate.toFixed(1)}倍（このチャンネルの平均比）` : "")
+    );
     lines.push(`　https://www.youtube.com/watch?v=${v.id}`);
+    const overview = cleanDescription(v.description ?? "");
+    if (overview) lines.push(`　概要：${overview}`);
+    lines.push("");
   });
-  lines.push("");
   lines.push("最近の伸び傾向として参考になりそうなものを共有します。");
   lines.push("[/info]");
   return lines.join("\n");
@@ -158,6 +175,9 @@ export default function Home() {
   // キーワード入力
   const [keywords, setKeywords] = useState<string[]>([]);
   const [kwInput, setKwInput] = useState("");
+  // 除外ワード（ネガティブ指定）
+  const [excludeWords, setExcludeWords] = useState<string[]>([]);
+  const [exInput, setExInput] = useState("");
   // 翻訳前（日本語）のキーワード。日本に戻したときに復元するために保持する
   const [baseKeywords, setBaseKeywords] = useState<string[] | null>(null);
   const [translating, setTranslating] = useState(false);
@@ -176,6 +196,7 @@ export default function Home() {
   const [result, setResult] = useState<TrendResponse | null>(null);
   const [copied, setCopied] = useState(false);
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "spreadRate", dir: "desc" });
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
 
   /* 同じ列を押すと降順→昇順で切り替わる */
   const handleSort = useCallback((key: SortKey) => {
@@ -191,6 +212,11 @@ export default function Home() {
       if (kw) {
         const parsed = JSON.parse(kw) as string[];
         if (Array.isArray(parsed)) setKeywords(parsed.filter((x) => typeof x === "string" && x.trim()));
+      }
+      const ex = localStorage.getItem(LS_EXCLUDE);
+      if (ex) {
+        const parsedEx = JSON.parse(ex) as string[];
+        if (Array.isArray(parsedEx)) setExcludeWords(parsedEx.filter((x) => typeof x === "string" && x.trim()));
       }
     } catch { /* ignore */ }
   }, []);
@@ -220,6 +246,38 @@ export default function Home() {
     persistKeywords(keywords.filter((k) => k !== kw));
     setBaseKeywords(null); // 手で編集したら翻訳前の内容は破棄する
   }, [keywords, persistKeywords]);
+
+  /* ── 除外ワード ───────────────────────────────────────────────── */
+  const persistExclude = useCallback((next: string[]) => {
+    setExcludeWords(next);
+    try { localStorage.setItem(LS_EXCLUDE, JSON.stringify(next)); } catch { /* ignore */ }
+  }, []);
+
+  const commitExclude = useCallback((raw: string) => {
+    const parts = raw.split(/[,、\n]/).map((s) => s.trim()).filter(Boolean);
+    if (parts.length === 0) return;
+    setExcludeWords((prev) => {
+      const next = [...prev];
+      for (const p of parts) if (!next.includes(p)) next.push(p);
+      try { localStorage.setItem(LS_EXCLUDE, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+    setExInput("");
+  }, []);
+
+  const handleExKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.nativeEvent.isComposing) return; // IME変換中のEnterは確定に使われる
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      commitExclude(exInput);
+    } else if (e.key === "Backspace" && exInput === "") {
+      setExcludeWords((prev) => {
+        const next = prev.slice(0, -1);
+        try { localStorage.setItem(LS_EXCLUDE, JSON.stringify(next)); } catch { /* ignore */ }
+        return next;
+      });
+    }
+  }, [exInput, commitExclude]);
 
   /* 地域切り替え。キーワードをその国の言語に自動翻訳する */
   const handleRegionChange = useCallback(async (next: Region) => {
@@ -284,6 +342,7 @@ export default function Home() {
           maxPerKeyword: 25,
           region,
           durations,
+          excludeWords,
           order: "viewCount",
         }),
       });
@@ -295,18 +354,24 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, [apiKey, keywords, kwInput, days, region, durations, persistKeywords]);
+  }, [apiKey, keywords, kwInput, days, region, durations, excludeWords, persistKeywords]);
 
   // クライアント側フィルタ
   const filtered = useMemo(() => {
     if (!result) return [];
+    // 検索側の "-ワード" は取りこぼすことがあるので、取得後にも本文で照合する
+    const ng = excludeWords.map((w) => w.toLowerCase()).filter(Boolean);
     return result.videos.filter((v) => {
       if (v.viewCount < minViews) return false;
       if (minSpread > 0 && v.spreadRate < minSpread) return false;
       if (excludeShorts && v.durationSeconds > 0 && v.durationSeconds <= 60) return false;
+      if (ng.length > 0) {
+        const haystack = `${v.title} ${v.channelName} ${v.description ?? ""}`.toLowerCase();
+        if (ng.some((w) => haystack.includes(w))) return false;
+      }
       return true;
     });
-  }, [result, minViews, minSpread, excludeShorts]);
+  }, [result, minViews, minSpread, excludeShorts, excludeWords]);
 
   // 並び替え。速報テキストも画面の並び順に合わせる（上位N本＝いま見えている順の上からN本）
   const sorted = useMemo(() => {
@@ -322,9 +387,35 @@ export default function Home() {
     return arr;
   }, [filtered, sort]);
 
+  /* 速報に載せる動画の選択。検索するたびに上位N本を初期選択する */
+  useEffect(() => {
+    if (!result) { setCheckedIds(new Set()); return; }
+    setCheckedIds(new Set(sorted.slice(0, topN).map((v) => v.id)));
+    // 検索結果が変わったときだけ初期化する（並び替えやチェック操作では初期化しない）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result]);
+
+  const toggleCheck = useCallback((id: string) => {
+    setCheckedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleCheckAll = useCallback((ids: string[]) => {
+    setCheckedIds((prev) => {
+      const allChecked = ids.length > 0 && ids.every((id) => prev.has(id));
+      return allChecked ? new Set() : new Set(ids);
+    });
+  }, []);
+
+  // 速報テキストはチェックの入った動画だけを、画面の並び順で出力する
+  const selected = useMemo(() => sorted.filter((v) => checkedIds.has(v.id)), [sorted, checkedIds]);
+
   const report = useMemo(
-    () => (result ? buildReport(result.genre, sorted, days, topN) : ""),
-    [result, sorted, days, topN]
+    () => (result ? buildReport(result.genre, selected, days) : ""),
+    [result, selected, days]
   );
 
   const hasAnyKeyword = keywords.length > 0 || kwInput.trim().length > 0;
@@ -440,6 +531,71 @@ export default function Home() {
           <p className="text-[11px]" style={{ color: "rgba(0,0,0,0.35)" }}>
             カンマ・読点で区切ると複数まとめて追加できます。キーワードが多いほどAPIの消費量が増えるため<strong>2〜4個</strong>が目安です。入力内容はこのブラウザに保存されます。
           </p>
+
+          {/* ── 除外ワード ─────────────────────────────────────────── */}
+          <div className="pt-4 space-y-3" style={{ borderTop: "1px solid rgba(0,0,0,0.06)" }}>
+            <label className="text-xs font-medium" style={{ color: "#374151" }}>
+              除外ワード
+              <span className="ml-2 font-normal" style={{ color: "rgba(0,0,0,0.32)" }}>任意・含む動画を結果から外す</span>
+            </label>
+
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={exInput}
+                onChange={(e) => setExInput(e.target.value)}
+                onKeyDown={handleExKeyDown}
+                onBlur={() => commitExclude(exInput)}
+                placeholder="例: 求人, 採用, ライブ（入力して Enter で追加）"
+                className="lg-input flex-1 px-3 py-2.5 text-sm"
+                style={{ color: "#111827" }}
+              />
+              <button
+                type="button"
+                onClick={() => commitExclude(exInput)}
+                disabled={!exInput.trim()}
+                className="lg-chip flex items-center gap-1 px-4 py-2 text-xs font-medium disabled:opacity-40"
+                style={{ color: "#4b5563" }}
+              >
+                <Plus className="h-3.5 w-3.5" /> 追加
+              </button>
+            </div>
+
+            {excludeWords.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {excludeWords.map((w) => (
+                  <span
+                    key={w}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-full"
+                    style={{ background: "rgba(0,0,0,0.06)", color: "#4b5563", textDecoration: "line-through" }}
+                  >
+                    {w}
+                    <button
+                      type="button"
+                      onClick={() => persistExclude(excludeWords.filter((x) => x !== w))}
+                      title="削除"
+                      className="opacity-60 hover:opacity-100"
+                      style={{ textDecoration: "none" }}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => persistExclude([])}
+                  className="text-[11px] underline underline-offset-2 px-1"
+                  style={{ color: "rgba(0,0,0,0.35)" }}
+                >
+                  すべてクリア
+                </button>
+              </div>
+            )}
+
+            <p className="text-[11px]" style={{ color: "rgba(0,0,0,0.35)" }}>
+              検索の時点で除外するため、取得枠を無駄にしません。タイトル・説明文・チャンネル名のいずれかに含まれる動画も結果から外します。
+            </p>
+          </div>
         </div>
 
         {/* ── Filters ──────────────────────────────────────────────────── */}
@@ -507,7 +663,10 @@ export default function Home() {
               </select>
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs font-medium" style={{ color: "#374151" }}>速報の本数</label>
+              <label className="text-xs font-medium" style={{ color: "#374151" }} title="検索直後に自動でチェックが入る本数です。あとから一覧のチェックで増減できます">
+                速報の本数
+                <span className="ml-1 font-normal" style={{ color: "rgba(0,0,0,0.32)" }}>（初期選択）</span>
+              </label>
               <select value={topN} onChange={(e) => setTopN(Number(e.target.value))} className="lg-input w-full px-2 py-2 text-sm" style={{ color: "#111827" }}>
                 <option value={3}>上位3本</option>
                 <option value={5}>上位5本</option>
@@ -582,10 +741,10 @@ export default function Home() {
             {/* 速報テキスト */}
             <div className="lg-panel p-6 space-y-3">
               <div className="flex items-center justify-between">
-                <SectionLabel>速報テキスト（Chatworkにそのまま貼れます）</SectionLabel>
+                <SectionLabel>速報テキスト（チェックした動画だけが入ります）</SectionLabel>
                 <button type="button"
                   onClick={() => { navigator.clipboard.writeText(report); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-                  disabled={filtered.length === 0}
+                  disabled={selected.length === 0}
                   className="lg-chip-on flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold text-white disabled:opacity-40">
                   {copied ? <><Check className="h-3.5 w-3.5" /> コピーしました</> : <><Copy className="h-3.5 w-3.5" /> コピー</>}
                 </button>
@@ -593,6 +752,10 @@ export default function Home() {
               {filtered.length === 0 ? (
                 <p className="text-sm py-6 text-center" style={{ color: "rgba(0,0,0,0.35)" }}>
                   条件に合う動画がありませんでした。期間を延ばす・最低再生数や拡散率を下げてお試しください。
+                </p>
+              ) : selected.length === 0 ? (
+                <p className="text-sm py-6 text-center" style={{ color: "rgba(0,0,0,0.35)" }}>
+                  下の一覧でチェックを入れた動画が、ここに速報テキストとして表示されます。
                 </p>
               ) : (
                 <pre className="text-xs leading-relaxed whitespace-pre-wrap rounded-xl p-4"
@@ -606,6 +769,7 @@ export default function Home() {
                 <div className="flex items-center justify-between px-5 py-3 lg-divider">
                   <span className="text-sm" style={{ color: "rgba(0,0,0,0.4)" }}>
                     {result.genre || genreLabel}：{filtered.length}件（取得 {result.totalFetched}件中）
+                    <strong className="ml-2" style={{ color: "#e63946" }}>{selected.length}本を選択中</strong>
                   </span>
                   <button type="button" onClick={() => exportCsv(result.genre || genreLabel, sorted)}
                     className="lg-csv-btn flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium" style={{ color: "#4b5563" }}>
@@ -616,6 +780,15 @@ export default function Home() {
                   <table className="w-full text-sm" style={{ borderCollapse: "collapse" }}>
                     <thead>
                       <tr className="text-xs" style={{ borderBottom: "1px solid rgba(0,0,0,0.05)", background: "rgba(0,0,0,0.015)", color: "#9ca3af" }}>
+                        <th className="pl-4 pr-2 py-3 w-8">
+                          <input
+                            type="checkbox"
+                            title="すべて選択／解除"
+                            checked={sorted.length > 0 && sorted.every((v) => checkedIds.has(v.id))}
+                            onChange={() => toggleCheckAll(sorted.map((v) => v.id))}
+                            style={{ accentColor: "#e63946", cursor: "pointer" }}
+                          />
+                        </th>
                         <th className="px-4 py-3 text-left w-10">#</th>
                         <th className="px-4 py-3 text-left">動画</th>
                         <th className="px-4 py-3 text-left whitespace-nowrap">
@@ -635,6 +808,15 @@ export default function Home() {
                     <tbody>
                       {sorted.map((v, i) => (
                         <tr key={v.id} className="lg-row" style={{ borderTop: "1px solid rgba(0,0,0,0.035)" }}>
+                          <td className="pl-4 pr-2 py-3">
+                            <input
+                              type="checkbox"
+                              checked={checkedIds.has(v.id)}
+                              onChange={() => toggleCheck(v.id)}
+                              title="速報テキストに載せる"
+                              style={{ accentColor: "#e63946", cursor: "pointer" }}
+                            />
+                          </td>
                           <td className="px-4 py-3 text-xs" style={{ color: "rgba(0,0,0,0.25)" }}>{i + 1}</td>
                           <td className="px-4 py-3">
                             <a href={`https://www.youtube.com/watch?v=${v.id}`} target="_blank" rel="noopener noreferrer"
@@ -643,7 +825,20 @@ export default function Home() {
                               <span className="line-clamp-2 leading-snug" style={{ color: "#1f2937" }}>{v.title}</span>
                             </a>
                           </td>
-                          <td className="px-4 py-3 text-xs whitespace-nowrap max-w-[120px] truncate" style={{ color: "#9ca3af" }}>{v.channelName}</td>
+                          <td className="px-4 py-3 text-xs whitespace-nowrap max-w-[120px] truncate">
+                            <a
+                              href={`https://www.youtube.com/channel/${v.channelId}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title={`${v.channelName} のチャンネルを開く`}
+                              className="transition-colors hover:underline"
+                              style={{ color: "#9ca3af" }}
+                              onMouseEnter={(e) => (e.currentTarget.style.color = "#e63946")}
+                              onMouseLeave={(e) => (e.currentTarget.style.color = "#9ca3af")}
+                            >
+                              {v.channelName}
+                            </a>
+                          </td>
                           <td className="px-4 py-3 text-right whitespace-nowrap text-xs" style={{ color: "#6b7280" }}>{fmtDate(v.publishedAt)}</td>
                           <td className="px-4 py-3 text-right font-semibold whitespace-nowrap" style={{ color: "#111827" }}>{fmt(v.viewCount)}</td>
                           <td className="px-4 py-3 text-right whitespace-nowrap">

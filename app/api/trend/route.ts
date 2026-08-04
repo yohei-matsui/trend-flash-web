@@ -21,6 +21,7 @@ export interface TrendVideoItem {
   channelBaseline: number;
   subscriberCount: number;
   durationSeconds: number;
+  description: string;
   keyword: string;
 }
 
@@ -51,6 +52,7 @@ type VideoDetail = {
   channelId: string;
   channelName: string;
   durationSeconds: number;
+  description: string;
 };
 
 async function fetchVideoDetails(videoIds: string[], apiKey: string): Promise<Map<string, VideoDetail>> {
@@ -76,6 +78,7 @@ async function fetchVideoDetails(videoIds: string[], apiKey: string): Promise<Ma
         channelId: item.snippet?.channelId ?? "",
         channelName: item.snippet?.channelTitle ?? "",
         durationSeconds: parseDurationSeconds(item.contentDetails?.duration ?? ""),
+        description: item.snippet?.description ?? "",
       });
     }
   }
@@ -141,6 +144,10 @@ export async function POST(request: NextRequest) {
   const keywords: string[] = Array.isArray(body.keywords)
     ? body.keywords.map((k: unknown) => String(k).trim()).filter(Boolean)
     : [];
+  // 除外ワード。検索クエリに "-ワード" として渡し、取得枠が不要な動画で埋まるのを防ぐ
+  const excludeWords: string[] = Array.isArray(body.excludeWords)
+    ? body.excludeWords.map((w: unknown) => String(w).trim()).filter(Boolean).slice(0, 20)
+    : [];
   const daysWithin: number = Number(body.daysWithin) > 0 ? Number(body.daysWithin) : 30;
   const maxPerKeyword: number = Math.min(50, Number(body.maxPerKeyword) > 0 ? Number(body.maxPerKeyword) : 25);
   const regionCode: string = body.region === "korea" ? "KR" : body.region === "usa" ? "US" : "JP";
@@ -167,7 +174,8 @@ export async function POST(request: NextRequest) {
       for (const vd of durationQueries) {
         const url = new URL("https://www.googleapis.com/youtube/v3/search");
         url.searchParams.set("part", "id");
-        url.searchParams.set("q", kw);
+        // YouTubeの検索構文では "-ワード" が除外指定になる
+        url.searchParams.set("q", excludeWords.length > 0 ? `${kw} ${excludeWords.map((w) => `-${w}`).join(" ")}` : kw);
         url.searchParams.set("type", "video");
         url.searchParams.set("regionCode", regionCode);
         url.searchParams.set("relevanceLanguage", regionCode === "JP" ? "ja" : regionCode === "KR" ? "ko" : "en");
@@ -234,6 +242,7 @@ export async function POST(request: NextRequest) {
         publishedAt: d.publishedAt,
         thumbnailUrl: d.thumbnailUrl,
         durationSeconds: d.durationSeconds,
+        description: d.description,
         channelBaseline: baseline,
         subscriberCount,
         spreadRate: baseline > 0 ? d.viewCount / baseline : 0,
