@@ -56,7 +56,14 @@ export function classifyGeminiError(err: unknown): GeminiError {
   }
 
   // 401 / 403 — キーが無効
-  if (raw.includes("401") || raw.includes("403") || lower.includes("api_key") || lower.includes("invalid") || lower.includes("permission")) {
+  // 実際の文面は「400 API key not valid. Please pass a valid API key.」なので、
+  // "invalid" だけでなく "not valid" / "api key" も拾う（実機の応答で確認済み）
+  if (
+    raw.includes("401") || raw.includes("403") ||
+    lower.includes("api_key") || lower.includes("api key") ||
+    lower.includes("invalid") || lower.includes("not valid") ||
+    lower.includes("permission")
+  ) {
     return {
       message: "Gemini APIキーが無効か、権限がありません。Google AI Studioでキーを確認してください。",
       code: "invalid_key",

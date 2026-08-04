@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useState, useCallback, useMemo, useEffect } from "react";
-import { Eye, EyeOff, Copy, Check, X, Zap, Download, Plus, ArrowLeft, ChevronUp, ChevronDown } from "lucide-react";
+import { Eye, EyeOff, Copy, Check, X, Zap, Download, Plus, ArrowLeft, ChevronUp, ChevronDown, Sparkles } from "lucide-react";
 import { TrendVideoItem, TrendResponse } from "@/app/api/trend/route";
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -15,6 +15,7 @@ import { TrendVideoItem, TrendResponse } from "@/app/api/trend/route";
 const LS_KEY = "tf-api-key";
 const LS_KEYWORDS = "tf-keywords";
 const LS_EXCLUDE = "tf-exclude";
+const LS_GEMINI = "tf-gemini-key";
 
 type Region = "japan" | "korea" | "usa";
 type DurationValue = "short" | "medium" | "long";
@@ -106,21 +107,14 @@ function genreLabelOf(keywords: string[]): string {
   return `${keywords.slice(0, 2).join("・")} 他${keywords.length - 2}件`;
 }
 
-/* YouTubeの概要欄は URL・ハッシュタグ・定型文が多いので、読める形に整える */
-function cleanDescription(raw: string, limit = 120): string {
-  if (!raw) return "";
-  const text = raw
-    .replace(/https?:\/\/\S+/g, "")        // URL
-    .replace(/[#＃][^\s#＃]+/g, "")         // ハッシュタグ
-    .replace(/[\r\n]+/g, " ")              // 改行は詰める
-    .replace(/\s{2,}/g, " ")
-    .trim();
-  if (!text) return "";
-  return text.length > limit ? `${text.slice(0, limit)}…` : text;
-}
-
-/* 速報テキスト（Chatwork用）を生成。渡された動画をそのまま全件載せる */
-function buildReport(genre: string, videos: TrendVideoItem[], days: number): string {
+/* 速報テキスト（Chatwork用）を生成。渡された動画をそのまま全件載せる。
+   概要はAIが動画本編を視聴して作った要約のみを載せる（概要欄の宣伝文は使わない）。 */
+function buildReport(
+  genre: string,
+  videos: TrendVideoItem[],
+  days: number,
+  summaries: Record<string, string> = {}
+): string {
   const now = new Date();
   const month = `${now.getFullYear()}年${String(now.getMonth() + 1).padStart(2, "0")}月`;
   const lines: string[] = [];
@@ -135,7 +129,7 @@ function buildReport(genre: string, videos: TrendVideoItem[], days: number): str
       (v.spreadRate >= 1 ? `　拡散率 ${v.spreadRate.toFixed(1)}倍（このチャンネルの平均比）` : "")
     );
     lines.push(`　https://www.youtube.com/watch?v=${v.id}`);
-    const overview = cleanDescription(v.description ?? "");
+    const overview = summaries[v.id];
     if (overview) lines.push(`　概要：${overview}`);
     lines.push("");
   });
@@ -197,6 +191,13 @@ export default function Home() {
   const [copied, setCopied] = useState(false);
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "spreadRate", dir: "desc" });
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
+  // AIによる動画内容の要約（動画ID → 要約文）
+  const [geminiKey, setGeminiKey] = useState("");
+  const [showGeminiKey, setShowGeminiKey] = useState(false);
+  const [summaries, setSummaries] = useState<Record<string, string>>({});
+  const [summarizing, setSummarizing] = useState(false);
+  const [summaryProgress, setSummaryProgress] = useState({ done: 0, total: 0 });
+  const [summaryError, setSummaryError] = useState<string | null>(null);
 
   /* 同じ列を押すと降順→昇順で切り替わる */
   const handleSort = useCallback((key: SortKey) => {
@@ -213,6 +214,8 @@ export default function Home() {
         const parsed = JSON.parse(kw) as string[];
         if (Array.isArray(parsed)) setKeywords(parsed.filter((x) => typeof x === "string" && x.trim()));
       }
+      const gk = localStorage.getItem(LS_GEMINI);
+      if (gk) setGeminiKey(gk);
       const ex = localStorage.getItem(LS_EXCLUDE);
       if (ex) {
         const parsedEx = JSON.parse(ex) as string[];
@@ -413,9 +416,57 @@ export default function Home() {
   // 速報テキストはチェックの入った動画だけを、画面の並び順で出力する
   const selected = useMemo(() => sorted.filter((v) => checkedIds.has(v.id)), [sorted, checkedIds]);
 
+  const persistGeminiKey = useCallback((k: string) => {
+    setGeminiKey(k);
+    try { localStorage.setItem(LS_GEMINI, k); } catch { /* ignore */ }
+  }, []);
+
+  /* 選択中の動画について、Geminiに本編を視聴させて内容を要約する。
+     1本ずつ呼び、失敗した動画は飛ばして続行する（1本の失敗で全部止めない）。 */
+  const handleSummarize = useCallback(async () => {
+    const targets = selected.filter((v) => !summaries[v.id]);
+    if (!geminiKey.trim() || targets.length === 0) return;
+
+    setSummarizing(true);
+    setSummaryError(null);
+    setSummaryProgress({ done: 0, total: targets.length });
+
+    let lastError: string | null = null;
+    let okCount = 0;
+
+    for (const v of targets) {
+      try {
+        const res = await fetch("/api/summarize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-gemini-api-key": geminiKey.trim() },
+          body: JSON.stringify({ videoId: v.id, title: v.title }),
+        });
+        const json = await res.json();
+        if (res.ok && json.summary) {
+          okCount += 1;
+          setSummaries((prev) => ({ ...prev, [v.id]: json.summary as string }));
+        } else {
+          lastError = json.error ?? "要約に失敗しました";
+        }
+      } catch {
+        lastError = "通信エラーが発生しました";
+      }
+      setSummaryProgress((p) => ({ ...p, done: p.done + 1 }));
+    }
+
+    if (lastError) {
+      setSummaryError(
+        okCount > 0
+          ? `${okCount}本の要約を作成しました。残りは失敗しています: ${lastError}`
+          : lastError
+      );
+    }
+    setSummarizing(false);
+  }, [selected, summaries, geminiKey]);
+
   const report = useMemo(
-    () => (result ? buildReport(result.genre, selected, days) : ""),
-    [result, selected, days]
+    () => (result ? buildReport(result.genre, selected, days, summaries) : ""),
+    [result, selected, days, summaries]
   );
 
   const hasAnyKeyword = keywords.length > 0 || kwInput.trim().length > 0;
@@ -475,6 +526,33 @@ export default function Home() {
             <a href="https://note.com/yuki_tech/n/na82ad826df1f" target="_blank" rel="noopener noreferrer"
               className="underline decoration-dashed underline-offset-2 hover:opacity-70 ml-1">取得方法はこちら</a>
           </p>
+
+          {/* Gemini（動画内容の要約に使う。任意） */}
+          <div className="pt-4 space-y-2" style={{ borderTop: "1px solid rgba(0,0,0,0.06)" }}>
+            <label className="text-sm font-medium" style={{ color: "#374151" }}>
+              Gemini APIキー
+              <span className="ml-2 text-xs font-normal" style={{ color: "rgba(0,0,0,0.32)" }}>任意・動画内容の要約に使います</span>
+            </label>
+            <div className="relative">
+              <input
+                type={showGeminiKey ? "text" : "password"}
+                value={geminiKey}
+                onChange={(e) => persistGeminiKey(e.target.value)}
+                placeholder="AIza...（未入力なら概要なしで速報を作成します）"
+                className="lg-input w-full px-3 py-2.5 pr-10 text-sm"
+                style={{ color: "#111827" }}
+              />
+              <button type="button" onClick={() => setShowGeminiKey((v) => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: "rgba(0,0,0,0.3)" }}>
+                {showGeminiKey ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+              </button>
+            </div>
+            <p className="text-xs" style={{ color: "rgba(0,0,0,0.38)" }}>
+              Geminiが動画本編を視聴して内容を要約します（概要欄の転記ではありません）。
+              <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer"
+                className="underline decoration-dashed underline-offset-2 hover:opacity-70 ml-1">キーを取得</a>
+            </p>
+          </div>
         </div>
 
         {/* ── Keywords ─────────────────────────────────────────────────── */}
@@ -742,13 +820,33 @@ export default function Home() {
             <div className="lg-panel p-6 space-y-3">
               <div className="flex items-center justify-between">
                 <SectionLabel>速報テキスト（チェックした動画だけが入ります）</SectionLabel>
-                <button type="button"
-                  onClick={() => { navigator.clipboard.writeText(report); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-                  disabled={selected.length === 0}
-                  className="lg-chip-on flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold text-white disabled:opacity-40">
-                  {copied ? <><Check className="h-3.5 w-3.5" /> コピーしました</> : <><Copy className="h-3.5 w-3.5" /> コピー</>}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button type="button"
+                    onClick={handleSummarize}
+                    disabled={summarizing || selected.length === 0 || !geminiKey.trim() || selected.every((v) => summaries[v.id])}
+                    title={!geminiKey.trim() ? "Gemini APIキーを入力すると使えます" : "選択中の動画をAIが視聴して内容を要約します"}
+                    className="lg-chip flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium disabled:opacity-40"
+                    style={{ color: "#4b5563" }}>
+                    <Sparkles className="h-3.5 w-3.5" />
+                    {summarizing ? `要約中… ${summaryProgress.done}/${summaryProgress.total}` : "動画の概要をAIで作成"}
+                  </button>
+                  <button type="button"
+                    onClick={() => { navigator.clipboard.writeText(report); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+                    disabled={selected.length === 0}
+                    className="lg-chip-on flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold text-white disabled:opacity-40">
+                    {copied ? <><Check className="h-3.5 w-3.5" /> コピーしました</> : <><Copy className="h-3.5 w-3.5" /> コピー</>}
+                  </button>
+                </div>
               </div>
+
+              {summaryError && (
+                <div className="lg-red-info px-4 py-2.5 text-xs whitespace-pre-wrap" style={{ color: "#b91c1c" }}>{summaryError}</div>
+              )}
+              {summarizing && (
+                <p className="text-[11px]" style={{ color: "rgba(0,0,0,0.4)" }}>
+                  AIが動画を視聴しています。1本あたり10〜40秒ほどかかります。
+                </p>
+              )}
               {filtered.length === 0 ? (
                 <p className="text-sm py-6 text-center" style={{ color: "rgba(0,0,0,0.35)" }}>
                   条件に合う動画がありませんでした。期間を延ばす・最低再生数や拡散率を下げてお試しください。
